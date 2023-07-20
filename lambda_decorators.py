@@ -144,7 +144,6 @@ just built a few useful decorators and utilities to build them.
 
 import json
 import logging
-import boto3
 from functools import wraps, update_wrapper
 
 try:
@@ -721,95 +720,6 @@ def no_retry_on_failure(handler):
 
     return wrapper
 
-
-def ssm_parameter_store(*parameters):
-    """
-    Get parameters from the `AWS SSM Parameter Store <https://docs.aws.amazon.com/systems-manager/latest/userguide/systems-manager-paramstore.html>`_.
-
-    Secrets are added to a dictionary named ``ssm_params`` on the context object.
-
-    This requires your lambda to have the ``ssm:GetParameters`` permission on for requested parameters and
-    ``kms:Decrypt`` for any keys used to encrypt the parameters.
-
-    Usage::
-
-      >>> from lambda_decorators import ssm_parameter_store
-      >>> @ssm_parameter_store('/dschep/test')
-      ... def param_getter(event, context):
-      ...     return context.parameters
-      >>> class Context:
-      ...     pass
-      >>> param_getter({}, Context())
-      {'/dschep/test': 'f00b4r'}
-
-    For more advanced SSM use, see `ssm-cache <https://github.com/alexcasalboni/ssm-cache-python>`_
-
-    """
-    # support old list as 1st argument invocation style
-    if len(parameters) == 1 and not isinstance(parameters[0], basestring):
-        parameters = parameters[0]
-
-    def wrapper_wrapper(handler):
-        @wraps(handler)
-        def wrapper(event, context):
-            ssm = boto3.client("ssm")
-            if not hasattr(context, "parameters"):
-                context.parameters = {}
-            for parameter in ssm.get_parameters(Names=parameters, WithDecryption=True)[
-                "Parameters"
-            ]:
-                context.parameters[parameter["Name"]] = parameter["Value"]
-
-            return handler(event, context)
-
-        return wrapper
-
-    return wrapper_wrapper
-
-
-def secrets_manager(*secret_names):
-    """
-    Get secrets from the `AWS Secrets Manager <https://aws.amazon.com/secrets-manager/>`_.
-
-    Secrets are added to a dictionary named ``secrets`` on the context object.
-
-    This requires your lambda to have the ``secretsmanager:GetSecretValue`` permission for the
-    requested secret and ``kms:Decrypt`` for any keys used to encrypt the secrets.
-
-    Usage::
-
-      >>> from lambda_decorators import secrets_manager
-      >>> @secrets_manager('dschep/test')
-      ... def secret_getter(event, context):
-      ...     return context.secrets
-      >>> class Context:
-      ...     pass
-      >>> secret_getter({}, Context())
-      {'dschep/test': {'foo': 'b4r', 'floo': 'b4z'}}
-
-    """
-
-    def wrapper_wrapper(handler):
-        @wraps(handler)
-        def wrapper(event, context):
-            if not hasattr(context, "secrets"):
-                context.secrets = {}
-            for secret_name in secret_names:
-                secret_value = boto3.client(
-                    service_name="secretsmanager"
-                ).get_secret_value(SecretId=secret_name)
-                if "SecretString" in secret_value:
-                    context.secrets[secret_name] = json.loads(
-                        secret_value["SecretString"]
-                    )
-                else:
-                    context.secrets[secret_name] = secret_value["SecretBinary"]
-
-            return handler(event, context)
-
-        return wrapper
-
-    return wrapper_wrapper
 
 
 def secret_manager(secret_name):
